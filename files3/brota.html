@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>brota — Hidrosiembra urbana</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { overflow-x: hidden; }
+body { font-family: 'Inter', sans-serif; background: #050403; color: #fff; }
+
+/* Mientras la transición no terminó, bloqueamos el scroll real de la
+   página por completo: el body queda del tamaño de la pantalla y sin
+   overflow, así que la única forma de "avanzar" es a través del scroll
+   virtual que manejamos en JS (ver más abajo). */
+html.scroll-locked, html.scroll-locked body {
+  overflow: hidden;
+  height: 100vh;
+}
+
+.fixed { position: fixed; }
+.absolute { position: absolute; }
+.relative { position: relative; }
+.inset-0 { top: 0; right: 0; bottom: 0; left: 0; }
+
+/* ===========================================================
+   HERO: primera pantalla, 100vh normal (ya no necesita "pin"
+   ni sticky, porque mientras dura la transición el scroll de
+   toda la página está bloqueado por JS).
+   =========================================================== */
+#hero-pin {
+  position: relative;
+  height: 100vh;
+  width: 100%;
+  overflow: hidden;
+}
+
+#scroll-scene-container { position: absolute; inset: 0; z-index: 0; background: #0c0a08; }
+#scroll-scene-container canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+#scroll-scene-container .overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.22); }
+
+#particles-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
+
+/* Nav */
+nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 1.25rem 2.5rem;
+}
+nav .logo { font-weight: 700; font-size: 1.25rem; color: #fff; letter-spacing: -0.025em; }
+nav .nav-links { display: flex; align-items: center; gap: 1.5rem; }
+nav .nav-links a { font-size: 0.875rem; color: #d9d4c8; text-decoration: none; transition: color 0.2s; }
+nav .nav-links a:hover { color: #fff; }
+nav .social { display: flex; align-items: center; gap: 1rem; }
+nav .social a { color: #d9d4c8; transition: color 0.2s; }
+nav .social a:hover { color: #fff; }
+nav .social svg { width: 1.25rem; height: 1.25rem; }
+
+/* Hero content */
+#hero-content-wrap {
+  position: absolute; inset: 0; z-index: 3;
+  display: flex; flex-direction: column;
+}
+#hero-content-wrap .gradient-overlay {
+  position: absolute; inset: 0;
+  background: linear-gradient(to top, rgba(0,0,0,0.62), transparent, transparent);
+}
+#hero-content-wrap .content {
+  position: relative; z-index: 10; flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: flex-end; text-align: center;
+  padding: 0 1.5rem 6rem;
+}
+#hero-content-wrap .subtitle { font-size: 0.875rem; color: #b9b2a2; margin-bottom: 1rem; letter-spacing: 0.05em; }
+#hero-content-wrap h1 { font-size: clamp(1.5rem, 5vw, 3.75rem); font-weight: 600; line-height: 1.15; max-width: 50rem; }
+#hero-content-wrap h1 .underlined { position: relative; display: inline-block; }
+#hero-content-wrap h1 .underlined .line {
+  position: absolute; bottom: 0.25rem; left: 0; width: 100%; height: 10px;
+  background: #4CAF50; border-radius: 2px;
+}
+#hero-content-wrap h1 .underlined span { position: relative; }
+#hero-content-wrap .ctas {
+  display: flex; align-items: center; gap: 1rem; margin-top: 2.5rem; flex-wrap: wrap; justify-content: center;
+}
+#hero-content-wrap .code-box {
+  display: flex; align-items: center; gap: 0.5rem;
+  background: #16140f; border: 1px solid rgba(76,175,80,0.25);
+  border-radius: 0.5rem; padding: 0.875rem 2rem;
+}
+#hero-content-wrap .code-box .prompt { color: #4CAF50; font-family: monospace; font-size: 0.875rem; }
+#hero-content-wrap .code-box code { font-size: 0.875rem; color: #e5e1d6; font-family: monospace; }
+#hero-content-wrap .cta-btn {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  background: #3E8E41; color: #fff; font-weight: 500; border-radius: 0.5rem;
+  padding: 0.875rem 2rem; font-size: 0.875rem; text-decoration: none; transition: background 0.2s;
+}
+#hero-content-wrap .cta-btn:hover { background: #4CAF50; }
+
+.scroll-cue {
+  position: absolute; left: 0; right: 0; bottom: 2rem; z-index: 10;
+  display: flex; flex-direction: column; align-items: center; gap: .5rem;
+  transition: opacity .3s ease;
+}
+.scroll-cue span { font-size: .7rem; letter-spacing: .16em; text-transform: uppercase; color: #a8a196; }
+.scroll-cue svg { width: 1.5rem; height: 1.5rem; color: #8a8375; animation: bounce 1s infinite; }
+
+/* Barra de progreso de la transición */
+.progress-rail {
+  position: absolute; left: 50%; bottom: 5.2rem; transform: translateX(-50%);
+  width: 140px; height: 3px; border-radius: 999px; background: rgba(255,255,255,0.14);
+  z-index: 10; overflow: hidden;
+}
+.progress-rail .fill {
+  height: 100%; width: 0%; background: #4CAF50; border-radius: 999px;
+}
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-25%); }
+}
+
+/* ===================== Secciones normales debajo del hero ===================== */
+.section {
+  position: relative; z-index: 2; background: #050403;
+  padding: 6rem 2.5rem;
+}
+.section-inner { max-width: 72rem; margin: 0 auto; }
+
+.reveal {
+  opacity: 0; transform: translateY(28px); filter: blur(6px);
+  transition: opacity .9s ease-out, transform .9s ease-out, filter .9s ease-out;
+}
+.reveal.visible { opacity: 1; transform: translateY(0); filter: blur(0); }
+
+.section-eyebrow {
+  font-size: 0.7rem; letter-spacing: 0.2em; text-transform: uppercase; color: #4CAF50; margin-bottom: 0.9rem; display: block;
+}
+.section-title { font-size: clamp(1.6rem, 3.6vw, 2.6rem); font-weight: 700; margin-bottom: 1rem; }
+.section-lead { color: #b9b2a2; font-size: .95rem; max-width: 38rem; line-height: 1.6; margin-bottom: 3rem; }
+
+/* Cards de proceso */
+.process-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2.5rem; }
+.process-card .eyebrow { font-size: 0.7rem; letter-spacing: 0.18em; text-transform: uppercase; color: #4CAF50; margin-bottom: 0.6rem; display: block; }
+.process-card h3 { font-size: 1.4rem; font-weight: 700; margin-bottom: .8rem; }
+.process-card p { color: #d9d4c8; font-size: .875rem; line-height: 1.6; }
+
+/* Comparativa: gráfico de crecimiento */
+.growth-chart-wrap {
+  background: #0d0b08; border: 1px solid rgba(255,255,255,0.07); border-radius: 1rem;
+  padding: 2rem; margin-bottom: 2.5rem;
+}
+.legend { display: flex; flex-wrap: wrap; gap: 1.5rem; margin-bottom: 1.25rem; }
+.legend .item { display: flex; align-items: center; gap: .5rem; font-size: .8rem; color: #d9d4c8; }
+.legend .dot { width: .6rem; height: .6rem; border-radius: 9999px; flex: none; }
+.growth-chart-wrap svg { width: 100%; height: auto; display: block; }
+.chart-axis-label { fill: #7c766a; font-size: 10px; font-family: 'Inter', sans-serif; }
+.chart-line { fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+
+/* Tabla comparativa */
+.table-wrap { overflow-x: auto; border-radius: 1rem; border: 1px solid rgba(255,255,255,0.07); }
+table.compare { width: 100%; border-collapse: collapse; min-width: 640px; background: #0d0b08; }
+table.compare th, table.compare td { padding: 1rem 1.25rem; text-align: left; font-size: .85rem; }
+table.compare thead th {
+  background: #12100b; color: #fff; font-weight: 600; border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+table.compare thead th.hl { color: #4CAF50; }
+table.compare tbody th {
+  color: #b9b2a2; font-weight: 500; white-space: nowrap; border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+table.compare tbody td { color: #d9d4c8; border-bottom: 1px solid rgba(255,255,255,0.05); }
+table.compare tbody tr:last-child th, table.compare tbody tr:last-child td { border-bottom: none; }
+table.compare td.hl { color: #eafbe8; background: rgba(76,175,80,0.06); }
+.table-note { margin-top: 1rem; font-size: .75rem; color: #7c766a; }
+
+/* Section final */
+#section-three .inner p { color: #d9d4c8; font-size: 1rem; margin-bottom: 0.75rem; }
+#section-three .inner h2 { font-size: clamp(1.875rem, 6vw, 4.5rem); font-weight: 700; }
+#section-three { text-align: center; display: flex; flex-direction: column; align-items: center; }
+
+/* Responsive */
+@media (max-width: 768px) {
+  nav { padding: 1rem 1.5rem; }
+  nav .nav-links { display: none; }
+  #hero-content-wrap .content { padding-bottom: 5rem; }
+  #hero-content-wrap h1 { font-size: 1.5rem; }
+  #hero-content-wrap .ctas { flex-direction: column; }
+  .process-grid { grid-template-columns: 1fr; gap: 1.5rem; }
+  .section { padding: 4rem 1.25rem; }
+}
+</style>
+</head>
+<body>
+
+<!-- Navigation -->
+<nav>
+  <div style="display:flex;align-items:center;gap:2rem;">
+    <span class="logo">brota</span>
+    <div class="nav-links">
+      <a href="#proceso">Proceso</a>
+      <a href="#comparativa">Comparativa</a>
+    </div>
+  </div>
+  <div class="social">
+    <a href="#" aria-label="Instagram"><svg fill="currentColor" viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0 5.838a4 4 0 100 8 4 4 0 000-8zm6.406-.585a1.44 1.44 0 10-2.88 0 1.44 1.44 0 002.88 0z"/></svg></a>
+    <a href="#" aria-label="LinkedIn"><svg fill="currentColor" viewBox="0 0 24 24"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 110-4.124 2.062 2.062 0 010 4.124zM7.114 20.452H3.559V9h3.555v11.452z"/></svg></a>
+    <a href="#" aria-label="WhatsApp"><svg fill="currentColor" viewBox="0 0 24 24"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.44 1.34 4.94L2 22l5.28-1.38a9.9 9.9 0 004.76 1.21h.01c5.46 0 9.91-4.45 9.91-9.92C21.96 6.45 17.5 2 12.04 2zm5.79 14.13c-.24.68-1.4 1.3-1.93 1.38-.5.08-1.13.11-1.82-.11-.42-.13-.96-.31-1.65-.61-2.9-1.25-4.79-4.17-4.94-4.36-.15-.2-1.18-1.57-1.18-2.99 0-1.42.75-2.12 1.01-2.41.27-.28.58-.35.78-.35.19 0 .39 0 .55.01.18.01.42-.07.65.5.24.58.81 2.01.88 2.16.07.15.12.32.02.51-.1.2-.15.32-.29.49-.15.17-.31.38-.44.51-.15.15-.3.31-.13.6.17.29.76 1.26 1.63 2.04 1.12 1 2.06 1.31 2.35 1.46.29.15.46.13.63-.08.17-.2.71-.83.9-1.11.19-.29.38-.24.63-.15.26.1 1.63.77 1.91.91.29.15.48.22.55.34.07.13.07.71-.17 1.4z"/></svg></a>
+  </div>
+</nav>
+
+<!-- ===========================================================
+     HERO — scroll bloqueado hasta terminar la transición
+     ===========================================================
+     Mientras `locked === true` (ver <script> al final), la página
+     NO se desplaza: los eventos de rueda/touch/teclado se
+     interceptan y solo mueven `progress` (0 a 1), que dibuja el
+     fundido tierra→césped en el canvas. Apenas `progress` llega a
+     1, se desbloquea el scroll real y el resto de la web se
+     recorre de forma normal.
+     =========================================================== -->
+<section id="hero-pin">
+
+  <!-- Escena: tierra -> césped -->
+  <div id="scroll-scene-container">
+    <canvas id="scene-canvas"></canvas>
+    <div class="overlay"></div>
+  </div>
+
+  <!-- Partículas: semillas flotando -->
+  <canvas id="particles-canvas"></canvas>
+
+  <!-- Texto del hero, se desvanece a medida que avanza la animación -->
+  <div id="hero-content-wrap">
+    <div class="gradient-overlay"></div>
+    <div class="content" id="hero-text">
+      <p class="subtitle">Nuestro trabajo:</p>
+      <h1>
+        Transformamos tierra desnuda en
+        <span class="underlined"><span class="line"></span><span>jardines vivos</span></span>
+        en pocas semanas.
+      </h1>
+      <div class="ctas">
+        <div class="code-box">
+          <span class="prompt">&gt;</span>
+          <code>hidrosiembra --proyectar jardin</code>
+        </div>
+        <a href="#" class="cta-btn">Pedir presupuesto <span>&rarr;</span></a>
+      </div>
+    </div>
+  </div>
+
+  <div class="progress-rail" id="progress-rail"><div class="fill" id="progress-fill"></div></div>
+
+  <div class="scroll-cue" id="scroll-cue">
+    <span>Desliza para transformar el jardín</span>
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>
+  </div>
+
+</section>
+
+<!-- ===================== Proceso ===================== -->
+<section id="proceso" class="section">
+  <div class="section-inner">
+    <span class="section-eyebrow reveal">Cómo trabajamos</span>
+    <h2 class="section-title reveal">Tres pasos, un jardín</h2>
+    <p class="section-lead reveal">De la tierra compactada al césped denso, sin cortar rollos ni esperar meses.</p>
+    <div class="process-grid">
+      <div class="process-card reveal">
+        <span class="eyebrow">01 — Diagnóstico</span>
+        <h3>Leemos tu suelo</h3>
+        <p>Analizamos compactación, pendiente y drenaje del terreno para calibrar la mezcla de fibra, semilla y nutrientes exacta para tu jardín.</p>
+      </div>
+      <div class="process-card reveal">
+        <span class="eyebrow">02 — Proyección</span>
+        <h3>Hidrosembramos</h3>
+        <p>Proyectamos la mezcla en una sola pasada uniforme sobre toda la superficie, cubriendo taludes y zonas irregulares que el césped en rollo no resuelve.</p>
+      </div>
+      <div class="process-card reveal">
+        <span class="eyebrow">03 — Seguimiento</span>
+        <h3>Acompañamos el brote</h3>
+        <p>Monitoreamos riego y germinación durante las primeras semanas hasta obtener un césped denso, parejo y listo para pisar.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== Comparativa: crecimiento y precio ===================== -->
+<section id="comparativa" class="section" style="background:#080705;">
+  <div class="section-inner">
+    <span class="section-eyebrow reveal">Comparativa</span>
+    <h2 class="section-title reveal">Crecimiento y precio, lado a lado</h2>
+    <p class="section-lead reveal">Simulación de cobertura verde semana a semana y comparación de costos entre hidrosiembra, césped artificial y césped natural en rollos.</p>
+
+    <!-- Gráfico de crecimiento simulado -->
+    <div class="growth-chart-wrap reveal">
+      <div class="legend">
+        <div class="item"><span class="dot" style="background:#4CAF50;"></span> Hidrosiembra</div>
+        <div class="item"><span class="dot" style="background:#8BAA3C;"></span> Césped en rollos</div>
+        <div class="item"><span class="dot" style="background:#6B7280;"></span> Césped artificial</div>
+      </div>
+      <svg viewBox="0 0 600 220" id="growth-svg">
+        <!-- Ejes -->
+        <line x1="40" y1="10" x2="40" y2="180" stroke="#2a271f" stroke-width="1"/>
+        <line x1="40" y1="180" x2="580" y2="180" stroke="#2a271f" stroke-width="1"/>
+        <!-- Etiquetas eje X: semanas -->
+        <text x="40"  y="200" class="chart-axis-label">Sem 0</text>
+        <text x="140" y="200" class="chart-axis-label">Sem 1</text>
+        <text x="240" y="200" class="chart-axis-label">Sem 2</text>
+        <text x="340" y="200" class="chart-axis-label">Sem 3</text>
+        <text x="440" y="200" class="chart-axis-label">Sem 4</text>
+        <text x="540" y="200" class="chart-axis-label">Sem 5</text>
+        <!-- Etiquetas eje Y -->
+        <text x="4" y="184" class="chart-axis-label">0%</text>
+        <text x="4" y="98"  class="chart-axis-label">50%</text>
+        <text x="4" y="16"  class="chart-axis-label">100%</text>
+
+        <!-- Césped artificial: 100% desde el día uno (no crece, es sintético) -->
+        <path class="chart-line" id="line-artificial" stroke="#6B7280"
+          d="M40,20 L580,20" pathLength="1"/>
+
+        <!-- Césped en rollos: ya viene crecido, sube rápido y se estabiliza -->
+        <path class="chart-line" id="line-rollos" stroke="#8BAA3C"
+          d="M40,90 C120,45 180,28 280,22 C380,18 480,18 580,18" pathLength="1"/>
+
+        <!-- Hidrosiembra: arranca en tierra y germina de forma progresiva -->
+        <path class="chart-line" id="line-hidrosiembra" stroke="#4CAF50"
+          d="M40,178 C110,176 160,160 220,120 C300,70 360,35 460,22 C500,19 540,18 580,17" pathLength="1"/>
+      </svg>
+    </div>
+
+    <!-- Tabla comparativa -->
+    <div class="table-wrap reveal">
+      <table class="compare">
+        <thead>
+          <tr>
+            <th>Criterio</th>
+            <th class="hl">Hidrosiembra</th>
+            <th>Césped en rollos</th>
+            <th>Césped artificial</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">Costo aprox. por m²*</th>
+            <td class="hl">Bajo</td>
+            <td>Medio-alto</td>
+            <td>Alto</td>
+          </tr>
+          <tr>
+            <th scope="row">Tiempo hasta jardín completo</th>
+            <td class="hl">2 a 4 semanas</td>
+            <td>Inmediato</td>
+            <td>Inmediato</td>
+          </tr>
+          <tr>
+            <th scope="row">Ideal para superficies grandes o irregulares</th>
+            <td class="hl">Sí</td>
+            <td>Limitado</td>
+            <td>Sí</td>
+          </tr>
+          <tr>
+            <th scope="row">Riego y mantenimiento</th>
+            <td class="hl">Moderado</td>
+            <td>Moderado-alto</td>
+            <td>Mínimo</td>
+          </tr>
+          <tr>
+            <th scope="row">Césped 100% natural y vivo</th>
+            <td class="hl">Sí</td>
+            <td>Sí</td>
+            <td>No</td>
+          </tr>
+          <tr>
+            <th scope="row">Vida útil</th>
+            <td class="hl">Permanente (con cuidado)</td>
+            <td>Permanente (con cuidado)</td>
+            <td>8 a 15 años aprox.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="table-note reveal">* Valores orientativos: varían según superficie, zona y proveedor. Reemplazalos por tus tarifas reales antes de publicar.</p>
+  </div>
+</section>
+
+<!-- ===================== Sección final ===================== -->
+<section id="section-three" class="section">
+  <div class="inner reveal" id="section-three-inner">
+    <p>El resultado</p>
+    <h2>Tu jardín, brotado</h2>
+  </div>
+</section>
+
+<script>
+(function() {
+  // ===================== ESCENA CONTROLADA POR SCROLL-JACK =====================
+  // Rutas de las fotos. Deben estar en la misma carpeta que este archivo.
+  const IMG_TIERRA_URL = 'imagen_tierra.jpg'; // <-- foto ANTES (tierra)
+  const IMG_CESPED_URL = 'imagen_cesped.jpg'; // <-- foto DESPUÉS (césped)
+
+  const canvas = document.getElementById('scene-canvas');
+  const ctx = canvas.getContext('2d');
+  const heroText = document.getElementById('hero-text');
+  const scrollCue = document.getElementById('scroll-cue');
+  const progressFill = document.getElementById('progress-fill');
+  const progressRail = document.getElementById('progress-rail');
+  const htmlEl = document.documentElement;
+
+  // ---- Estado del "scroll virtual" ----
+  let progress = 0;      // 0 = tierra, 1 = césped
+  let locked = true;     // true = el scroll real de la página está bloqueado
+  const WHEEL_DISTANCE = 2600;  // "distancia" total equivalente en px de rueda de mouse
+  const TOUCH_DISTANCE = 900;   // equivalente para gestos táctiles
+
+  htmlEl.classList.add('scroll-locked');
+
+  function clamp01(v) { return Math.max(0, Math.min(1, v)); }
+
+  function lockScroll() {
+    locked = true;
+    htmlEl.classList.add('scroll-locked');
+  }
+  function unlockScroll() {
+    locked = false;
+    htmlEl.classList.remove('scroll-locked');
+  }
+
+  // ---- Imágenes ----
+  let imgTierra = new Image();
+  let imgCesped = new Image();
+  let imagesReady = 0;
+  function markReady() {
+    imagesReady++;
+    if (imagesReady === 2) drawScene(progress);
+  }
+  imgTierra.onload = markReady;
+  imgCesped.onload = markReady;
+  imgTierra.src = IMG_TIERRA_URL;
+  imgCesped.src = IMG_CESPED_URL;
+
+  function resizeCanvas() {
+    const dpr = Math.min(devicePixelRatio, 2);
+    const rect = canvas.getBoundingClientRect();
+    const w = Math.round(rect.width * dpr);
+    const h = Math.round(rect.height * dpr);
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+  }
+
+  function drawCover(img, alpha, zoom) {
+    if (!img.complete || img.naturalWidth === 0) return;
+    const cw = canvas.width, ch = canvas.height;
+    const s = Math.max(cw / img.naturalWidth, ch / img.naturalHeight) * zoom;
+    const dw = img.naturalWidth * s, dh = img.naturalHeight * s;
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(img, (cw - dw) / 2, (ch - dh) / 2, dw, dh);
+    ctx.globalAlpha = 1;
+  }
+
+  function drawScene(p) {
+    const cw = canvas.width, ch = canvas.height;
+    ctx.clearRect(0, 0, cw, ch);
+    const zoom = 1 + p * 0.12; // zoom cinematográfico sutil
+    drawCover(imgTierra, 1, zoom);
+    drawCover(imgCesped, p, zoom);
+  }
+
+  // ---- Aplica progress a: canvas, texto del hero, pista y barra ----
+  function applyProgress() {
+    drawScene(progress);
+    const textOpacity = Math.max(0, 1 - progress / 0.3);
+    heroText.style.opacity = textOpacity;
+    heroText.style.transform = `translateY(${-progress * 40}px)`;
+    scrollCue.style.opacity = progress > 0.04 ? 0 : 1;
+    progressFill.style.width = (progress * 100) + '%';
+    progressRail.style.opacity = progress > 0.02 ? 1 : 0;
+  }
+
+  function setProgress(next, fromDelta) {
+    const prev = progress;
+    progress = clamp01(next);
+    if (progress === prev) return;
+    applyProgress();
+    if (progress >= 1 && locked) {
+      unlockScroll();
+    } else if (progress <= 0 && !locked === false) {
+      // se mantiene bloqueado en 0, no hace falta acción extra
+    }
+  }
+
+  // ---- Rueda de mouse / trackpad ----
+  function onWheel(e) {
+    if (locked) {
+      e.preventDefault();
+      setProgress(progress + e.deltaY / WHEEL_DISTANCE);
+      return;
+    }
+    // Ya desbloqueado: si estamos arriba de todo y se sigue subiendo,
+    // volvemos a "entrar" en la transición en reversa.
+    if (window.scrollY <= 0 && e.deltaY < 0) {
+      e.preventDefault();
+      lockScroll();
+      setProgress(progress + e.deltaY / WHEEL_DISTANCE);
+    }
+  }
+  window.addEventListener('wheel', onWheel, { passive: false });
+
+  // ---- Touch ----
+  let touchStartY = 0;
+  window.addEventListener('touchstart', (e) => {
+    touchStartY = e.touches[0].clientY;
+  }, { passive: true });
+
+  window.addEventListener('touchmove', (e) => {
+    const currentY = e.touches[0].clientY;
+    const deltaY = touchStartY - currentY; // positivo = dedo sube = "scroll hacia abajo"
+    if (locked) {
+      e.preventDefault();
+      touchStartY = currentY;
+      setProgress(progress + deltaY / TOUCH_DISTANCE);
+      return;
+    }
+    if (window.scrollY <= 0 && deltaY < 0) {
+      e.preventDefault();
+      lockScroll();
+      touchStartY = currentY;
+      setProgress(progress + deltaY / TOUCH_DISTANCE);
+    }
+  }, { passive: false });
+
+  // ---- Teclado (accesibilidad: flechas, avpág/repág, espacio) ----
+  window.addEventListener('keydown', (e) => {
+    if (!locked) return;
+    if (['ArrowDown', 'PageDown', ' '].includes(e.key)) {
+      e.preventDefault();
+      setProgress(progress + 0.09);
+    } else if (['ArrowUp', 'PageUp'].includes(e.key)) {
+      e.preventDefault();
+      setProgress(progress - 0.09);
+    }
+  });
+
+  resizeCanvas();
+  window.addEventListener('resize', () => { resizeCanvas(); applyProgress(); });
+  // Primer dibujo (por si las imágenes ya estaban cacheadas)
+  requestAnimationFrame(() => applyProgress());
+
+  // ===================== PARTÍCULAS (semillas flotando) =====================
+  const pCanvas = document.getElementById('particles-canvas');
+  const pCtx = pCanvas.getContext('2d');
+  let particles = [];
+
+  function resizeParticles() {
+    pCanvas.width = pCanvas.clientWidth;
+    pCanvas.height = pCanvas.clientHeight;
+    createParticles();
+  }
+
+  function createParticles() {
+    particles = [];
+    const count = Math.floor((pCanvas.width * pCanvas.height) / 12000);
+    for (let i = 0; i < count; i++) {
+      particles.push({
+        x: Math.random() * pCanvas.width,
+        y: Math.random() * pCanvas.height,
+        vx: (Math.random() - 0.5) * 0.3,
+        vy: (Math.random() - 0.5) * 0.3 - 0.05,
+        size: Math.random() * 1.6 + 0.5,
+        opacity: Math.random() * 0.55 + 0.2
+      });
+    }
+  }
+
+  function animateParticles() {
+    pCtx.clearRect(0, 0, pCanvas.width, pCanvas.height);
+    for (const p of particles) {
+      p.x += p.vx; p.y += p.vy;
+      if (p.x < 0) p.x = pCanvas.width;
+      if (p.x > pCanvas.width) p.x = 0;
+      if (p.y < 0) p.y = pCanvas.height;
+      if (p.y > pCanvas.height) p.y = 0;
+      pCtx.beginPath();
+      pCtx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      pCtx.fillStyle = `rgba(214,235,200,${p.opacity})`;
+      pCtx.fill();
+    }
+    requestAnimationFrame(animateParticles);
+  }
+
+  resizeParticles();
+  window.addEventListener('resize', resizeParticles);
+  animateParticles();
+
+  // ===================== REVEAL AL SCROLLEAR (secciones normales) =====================
+  const revealEls = document.querySelectorAll('.reveal');
+  const revealObserver = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+        revealObserver.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.15 });
+  revealEls.forEach((el, i) => {
+    el.style.transitionDelay = (i % 4) * 0.06 + 's';
+    revealObserver.observe(el);
+  });
+
+  // ===================== ANIMACIÓN DEL GRÁFICO DE CRECIMIENTO =====================
+  const chartLines = ['line-artificial', 'line-rollos', 'line-hidrosiembra'].map(id => document.getElementById(id));
+  chartLines.forEach(line => {
+    line.style.strokeDasharray = '1';
+    line.style.strokeDashoffset = '1';
+  });
+  const chartObserver = new IntersectionObserver(([entry]) => {
+    if (entry.isIntersecting) {
+      chartLines.forEach((line, i) => {
+        line.style.transition = `stroke-dashoffset 1.4s ease-out ${i * 0.15}s`;
+        line.style.strokeDashoffset = '0';
+      });
+      chartObserver.unobserve(entry.target);
+    }
+  }, { threshold: 0.3 });
+  chartObserver.observe(document.getElementById('growth-svg'));
+})();
+</script>
+</body>
+</html>
